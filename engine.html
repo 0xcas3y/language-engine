@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>日语说话引擎 — 组件系统</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#08080a;--s1:#111114;--s2:#18181c;--s3:#222228;
+  --border:#2a2a32;--text:#d4d4dd;--dim:#555566;--mid:#8888a0;
+  --accent:#e87461;--blue:#5ea8d4;--gold:#d4a24e;--green:#5ebf7b;
+  --pink:#d46a8f;--purple:#9a7ae0;--cyan:#4ecfd4;--orange:#e89a4e;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Noto Sans JP','PingFang SC',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.7}
+
+/* Layout */
+.layout{display:flex;min-height:100vh}
+.sidebar{width:260px;min-width:260px;background:var(--s1);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:10}
+.main{margin-left:260px;flex:1;padding:40px 48px;max-width:900px}
+
+/* Sidebar */
+.sidebar-header{padding:20px 18px 16px;border-bottom:1px solid var(--border)}
+.sidebar-header h1{font-size:13px;letter-spacing:2px;color:var(--accent);text-transform:uppercase}
+.sidebar-header .sub{font-size:11px;color:var(--dim);margin-top:4px}
+.type-group{padding:8px 0}
+.type-label{font-size:10px;letter-spacing:2px;text-transform:uppercase;padding:8px 18px 4px;display:flex;align-items:center;gap:6px}
+.type-label .dot{width:8px;height:8px;border-radius:50%}
+.type-label span{color:var(--dim)}
+.sidebar-item{display:block;padding:6px 18px 6px 34px;font-size:13px;color:var(--mid);cursor:pointer;text-decoration:none;border-left:2px solid transparent;transition:all .12s}
+.sidebar-item:hover{background:var(--s2);color:var(--text)}
+.sidebar-item.active{background:var(--s2);color:var(--cyan);border-left-color:var(--cyan)}
+
+/* Architecture banner */
+.arch-banner{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin-bottom:32px;display:flex;gap:4px;align-items:center;flex-wrap:wrap;justify-content:center}
+.arch-block{padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;color:#fff}
+.arch-arrow{color:var(--dim);font-size:14px}
+.arch-block[data-t="buf"]{background:rgba(154,122,224,.2);border:1px solid rgba(154,122,224,.4)}
+.arch-block[data-t="cmp"]{background:rgba(94,168,212,.2);border:1px solid rgba(94,168,212,.4)}
+.arch-block[data-t="pay"]{background:rgba(232,116,97,.2);border:1px solid rgba(232,116,97,.4)}
+.arch-block[data-t="dwn"]{background:rgba(212,162,78,.2);border:1px solid rgba(212,162,78,.4)}
+.arch-block[data-t="exit"]{background:rgba(94,191,123,.2);border:1px solid rgba(94,191,123,.4)}
+
+/* Main header */
+.main-header{margin-bottom:32px}
+.main-header h2{font-size:22px;font-weight:600;color:#fff;margin-bottom:4px}
+.main-header .desc{font-size:13px;color:var(--dim)}
+
+/* Component detail */
+.comp-detail{display:none}
+.comp-detail.active{display:block}
+
+.detail-header{margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid var(--border)}
+.detail-id{font-size:11px;color:var(--dim);font-family:monospace;margin-bottom:6px}
+.detail-fragment{font-size:32px;font-weight:700;color:#fff;margin-bottom:8px}
+.detail-type{display:inline-block;font-size:11px;letter-spacing:1px;text-transform:uppercase;padding:3px 10px;border-radius:10px;font-weight:600}
+
+.detail-section{margin-bottom:28px}
+.detail-label{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);margin-bottom:10px}
+.detail-text{font-size:14px;color:var(--text);line-height:1.8;padding:14px 18px;background:var(--s1);border:1px solid var(--border);border-radius:8px}
+.detail-quote{font-size:14px;color:var(--cyan);padding:12px 18px;background:rgba(78,207,212,.06);border:1px solid rgba(78,207,212,.15);border-radius:8px;font-style:italic}
+
+/* Flow */
+.flow-list{list-style:none;padding-left:20px;border-left:2px solid var(--border)}
+.flow-item{padding:6px 0 6px 14px;font-size:14px;position:relative}
+.flow-item::before{content:'';position:absolute;left:-25px;top:14px;width:8px;height:8px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+
+/* Tags */
+.tag-list{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:12px;padding:4px 12px;border-radius:12px;border:1px solid var(--border);background:var(--s2);color:var(--mid)}
+
+/* Combinability */
+.comb-block{padding:12px 16px;background:var(--s1);border:1px solid var(--border);border-radius:8px;margin-bottom:8px}
+.comb-dir{font-size:11px;color:var(--gold);margin-bottom:6px;font-weight:600}
+.comb-items{display:flex;flex-wrap:wrap;gap:6px}
+.comb-chip{font-size:13px;padding:3px 10px;background:var(--s3);border-radius:4px;color:var(--text);border:1px solid var(--border)}
+
+/* Overview cards */
+.overview-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
+.ov-card{background:var(--s1);border:1px solid var(--border);border-radius:8px;padding:16px 18px;cursor:pointer;transition:all .15s}
+.ov-card:hover{border-color:#444;transform:translateY(-1px)}
+.ov-card .ov-frag{font-size:18px;font-weight:600;color:#fff;margin-bottom:4px}
+.ov-card .ov-func{font-size:12px;color:var(--mid);margin-bottom:8px}
+.ov-card .ov-trigger{font-size:12px;color:var(--cyan);padding:4px 8px;background:rgba(78,207,212,.08);border-radius:4px;display:inline-block}
+
+/* Type colors */
+.t-buf{color:var(--purple)}.bg-buf{background:rgba(154,122,224,.15);color:var(--purple);border:1px solid rgba(154,122,224,.3)}
+.t-cmp{color:var(--blue)}.bg-cmp{background:rgba(94,168,212,.15);color:var(--blue);border:1px solid rgba(94,168,212,.3)}
+.t-pay{color:var(--accent)}.bg-pay{background:rgba(232,116,97,.15);color:var(--accent);border:1px solid rgba(232,116,97,.3)}
+.t-dwn{color:var(--gold)}.bg-dwn{background:rgba(212,162,78,.15);color:var(--gold);border:1px solid rgba(212,162,78,.3)}
+.t-exit{color:var(--green)}.bg-exit{background:rgba(94,191,123,.15);color:var(--green);border:1px solid rgba(94,191,123,.3)}
+.t-rdr{color:var(--orange)}.bg-rdr{background:rgba(232,154,78,.15);color:var(--orange);border:1px solid rgba(232,154,78,.3)}
+.t-rct{color:var(--pink)}.bg-rct{background:rgba(212,106,143,.15);color:var(--pink);border:1px solid rgba(212,106,143,.3)}
+.t-soc{color:var(--cyan)}.bg-soc{background:rgba(78,207,212,.15);color:var(--cyan);border:1px solid rgba(78,207,212,.3)}
+.t-combo{color:#aaa}.bg-combo{background:rgba(180,180,180,.1);color:#bbb;border:1px solid rgba(180,180,180,.2)}
+
+/* Mobile */
+.menu-toggle{display:none;position:fixed;top:10px;left:10px;z-index:100;width:36px;height:36px;border-radius:8px;background:var(--s1);border:1px solid var(--border);color:var(--text);font-size:18px;cursor:pointer;align-items:center;justify-content:center}
+@media(max-width:768px){
+  .menu-toggle{display:flex}
+  .sidebar{transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:translateX(0)}
+  .main{margin-left:0;padding:50px 16px 40px}
+  .overview-grid{grid-template-columns:1fr}
+}
+
+/* Search */
+.search-box{margin-bottom:24px}
+.search-box input{width:100%;background:var(--s1);border:1px solid var(--border);border-radius:8px;padding:10px 16px;color:var(--text);font-size:14px;outline:none}
+.search-box input:focus{border-color:var(--cyan)}
+.search-box input::placeholder{color:var(--dim)}
+</style>
+</head>
+<body>
+
+<button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
+
+<div class="layout">
+<nav class="sidebar" id="sidebar"></nav>
+<main class="main" id="main"></main>
+</div>
+
+<script>
+// Load data
+fetch('components.json').then(r=>r.json()).then(DATA=>{
+
+const typeMap={
+  '启动缓冲':{label:'启动缓冲',cls:'buf',dot:'#9a7ae0'},
+  '力度压缩':{label:'力度压缩',cls:'cmp',dot:'#5ea8d4'},
+  '语义载体':{label:'语义载体',cls:'pay',dot:'#e87461'},
+  '降级包装':{label:'降级包装',cls:'dwn',dot:'#d4a24e'},
+  '出口策略':{label:'出口策略',cls:'exit',dot:'#5ebf7b'},
+  '轨道切换':{label:'轨道切换',cls:'rdr',dot:'#e89a4e'},
+  '即时反应':{label:'即时反应',cls:'rct',dot:'#d46a8f'},
+  '社交校准':{label:'社交校准',cls:'soc',dot:'#4ecfd4'}
+};
+
+function getTypeInfo(t){
+  if(typeMap[t])return typeMap[t];
+  const base=t.split('+')[0].trim();
+  if(typeMap[base])return typeMap[base];
+  if(t.includes('+')||t==='全层组合')return{label:'组合模式',cls:'combo',dot:'#aaa'};
+  return{label:t,cls:'combo',dot:'#aaa'};
+}
+
+// Build sidebar
+const sidebar=document.getElementById('sidebar');
+let sidebarHTML=`<div class="sidebar-header"><h1>说话引擎</h1><div class="sub">组件系统 — ${DATA.components.length}个组件</div></div>`;
+sidebarHTML+=`<div class="type-group"><a class="sidebar-item active" data-id="overview" onclick="showOverview()">全部概览</a></div>`;
+
+const grouped={};
+DATA.components.forEach(c=>{
+  const ti=getTypeInfo(c.type);
+  const key=ti.label;
+  if(!grouped[key])grouped[key]={info:ti,items:[]};
+  grouped[key].items.push(c);
+});
+
+Object.entries(grouped).forEach(([label,g])=>{
+  sidebarHTML+=`<div class="type-group"><div class="type-label"><span class="dot" style="background:${g.info.dot}"></span><span>${label}</span></div>`;
+  g.items.forEach(c=>{
+    sidebarHTML+=`<a class="sidebar-item" data-id="${c.id}" onclick="showComponent('${c.id}')">${c.fragment}</a>`;
+  });
+  sidebarHTML+=`</div>`;
+});
+sidebar.innerHTML=sidebarHTML;
+
+// Show overview
+window.showOverview=function(){
+  setActive('overview');
+  const main=document.getElementById('main');
+  let html=`
+    <div class="arch-banner">
+      <span class="arch-block" data-t="buf">启动缓冲</span><span class="arch-arrow">→</span>
+      <span class="arch-block" data-t="cmp">力度压缩</span><span class="arch-arrow">→</span>
+      <span class="arch-block" data-t="pay">语义载体</span><span class="arch-arrow">→</span>
+      <span class="arch-block" data-t="dwn">降级包装</span><span class="arch-arrow">→</span>
+      <span class="arch-block" data-t="exit">出口策略</span>
+    </div>
+    <div class="main-header">
+      <h2>全部组件</h2>
+      <div class="desc">${DATA.components.length}个可拼接组件 — 点击查看详情</div>
+    </div>
+    <div class="search-box"><input type="text" id="search" placeholder="搜索组件...（日语/功能/触发条件）"></div>
+    <div class="overview-grid" id="ov-grid">`;
+
+  DATA.components.forEach(c=>{
+    const ti=getTypeInfo(c.type);
+    html+=`<div class="ov-card" onclick="showComponent('${c.id}')">
+      <div class="ov-frag"><span class="t-${ti.cls}">${c.fragment}</span></div>
+      <div class="ov-func">${c.function.substring(0,60)}${c.function.length>60?'...':''}</div>
+      <span class="ov-trigger">${c.trigger}</span>
+    </div>`;
+  });
+  html+=`</div>`;
+  main.innerHTML=html;
+
+  document.getElementById('search').addEventListener('input',function(){
+    const q=this.value.toLowerCase();
+    document.querySelectorAll('.ov-card').forEach((card,i)=>{
+      const c=DATA.components[i];
+      const match=(c.fragment+c.function+c.trigger+c.thinking+c.type+JSON.stringify(c.combinability)).toLowerCase().includes(q);
+      card.style.display=match?'':'none';
+    });
+  });
+  document.getElementById('sidebar').classList.remove('open');
+};
+
+// Show component detail
+window.showComponent=function(id){
+  setActive(id);
+  const c=DATA.components.find(x=>x.id===id);
+  if(!c)return;
+  const ti=getTypeInfo(c.type);
+  const main=document.getElementById('main');
+  const comb=c.combinability||{};
+
+  let html=`
+    <div class="detail-header">
+      <div class="detail-id">${c.id}</div>
+      <div class="detail-fragment">${c.fragment}</div>
+      <span class="detail-type bg-${ti.cls}">${ti.label}</span>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-label">触发条件</div>
+      <div class="detail-text">${c.trigger}</div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-label">说话者在想什么</div>
+      <div class="detail-quote">${c.thinking}</div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-label">功能</div>
+      <div class="detail-text">${c.function}</div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-label">生成流程</div>
+      <ul class="flow-list">${(c.flow||[]).map(f=>`<li class="flow-item">${f}</li>`).join('')}</ul>
+    </div>`;
+
+  // Combinability
+  if(comb.can_precede||comb.can_follow||comb['常见后接']||comb['常见搭配']||comb['payload_slot可填']){
+    html+=`<div class="detail-section"><div class="detail-label">组合规则</div>`;
+    if(comb.can_precede){
+      html+=`<div class="comb-block"><div class="comb-dir">→ 后面可以接</div><div class="comb-items">${comb.can_precede.map(x=>`<span class="comb-chip">${x}</span>`).join('')}</div></div>`;
+    }
+    if(comb.can_follow){
+      html+=`<div class="comb-block"><div class="comb-dir">← 前面可以是</div><div class="comb-items">${comb.can_follow.map(x=>`<span class="comb-chip">${x}</span>`).join('')}</div></div>`;
+    }
+    const extra=comb['常见后接']||comb['常见搭配']||comb['语义槽可填'];
+    if(extra){
+      const label=comb['常见后接']?'常见后接':comb['常见搭配']?'常见搭配':'语义槽可填';
+      html+=`<div class="comb-block"><div class="comb-dir">${label}</div><div class="comb-items">${extra.map(x=>`<span class="comb-chip">${x}</span>`).join('')}</div></div>`;
+    }
+    html+=`</div>`;
+  }
+
+  // Extra fields
+  if(c.removal_effect){
+    html+=`<div class="detail-section"><div class="detail-label">去掉后的效果</div><div class="detail-text" style="border-left:3px solid var(--pink)">${c.removal_effect}</div></div>`;
+  }
+  if(c.replacement_changes_weight){
+    html+=`<div class="detail-section"><div class="detail-label">替换权重</div><div class="detail-text">${c.replacement_changes_weight}</div></div>`;
+  }
+  if(c.weight){
+    html+=`<div class="detail-section"><div class="detail-label">社交摩擦力</div><div class="detail-text">${c.weight}</div></div>`;
+  }
+
+  main.innerHTML=html;
+  window.scrollTo(0,0);
+  document.getElementById('sidebar').classList.remove('open');
+};
+
+function setActive(id){
+  document.querySelectorAll('.sidebar-item').forEach(a=>a.classList.toggle('active',a.dataset.id===id));
+}
+
+showOverview();
+});
+</script>
+</body>
+</html>

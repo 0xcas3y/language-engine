@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>说话引擎 — 运行机制</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#08080a;--s1:#111114;--s2:#18181c;--s3:#222228;--border:#2a2a32;--text:#d4d4dd;--dim:#555566;--mid:#8888a0;--accent:#e87461;--blue:#5ea8d4;--gold:#d4a24e;--green:#5ebf7b;--pink:#d46a8f;--purple:#9a7ae0;--cyan:#4ecfd4;--orange:#e89a4e}
+body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Noto Sans JP','PingFang SC',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.8}
+.page{max-width:860px;margin:0 auto;padding:48px 32px 80px}
+@media(max-width:600px){.page{padding:24px 14px 60px}}
+
+/* Nav */
+.nav{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--border);padding:10px 0;margin-bottom:36px;display:flex;gap:6px;flex-wrap:wrap}
+.nav a{font-size:12px;padding:5px 12px;border-radius:14px;border:1px solid var(--border);color:var(--mid);text-decoration:none;transition:all .12s}
+.nav a:hover{border-color:var(--mid);color:var(--text)}
+
+/* Hero */
+.hero{text-align:center;margin-bottom:48px;padding-bottom:32px;border-bottom:1px solid var(--border)}
+.hero-label{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.hero h1{font-size:24px;font-weight:700;color:#fff;margin-bottom:8px}
+.hero .sub{font-size:13px;color:var(--dim)}
+
+/* Section */
+.section{margin-bottom:56px}
+.section-id{font-size:11px;letter-spacing:2px;color:var(--accent);margin-bottom:8px}
+.section h2{font-size:20px;font-weight:600;color:#fff;margin-bottom:6px}
+.section .desc{font-size:13px;color:var(--dim);margin-bottom:24px}
+
+/* Pipeline */
+.pipeline{display:flex;gap:0;margin-bottom:24px;flex-wrap:wrap;justify-content:center}
+.pipe-block{padding:10px 16px;font-size:13px;font-weight:600;color:#fff;text-align:center;min-width:100px;position:relative}
+.pipe-block::after{content:'→';position:absolute;right:-10px;top:50%;transform:translateY(-50%);color:var(--dim);font-size:14px}
+.pipe-block:last-child::after{content:''}
+.pipe-block[data-t="eval"]{background:rgba(140,140,160,.15);border:1px solid rgba(140,140,160,.3);border-radius:8px 0 0 8px}
+.pipe-block[data-t="buf"]{background:rgba(154,122,224,.15);border:1px solid rgba(154,122,224,.3)}
+.pipe-block[data-t="cmp"]{background:rgba(94,168,212,.15);border:1px solid rgba(94,168,212,.3)}
+.pipe-block[data-t="pay"]{background:rgba(232,116,97,.15);border:1px solid rgba(232,116,97,.3)}
+.pipe-block[data-t="dwn"]{background:rgba(212,162,78,.15);border:1px solid rgba(212,162,78,.3)}
+.pipe-block[data-t="exit"]{background:rgba(94,191,123,.15);border:1px solid rgba(94,191,123,.3);border-radius:0 8px 8px 0}
+
+/* Phase card */
+.phase{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin-bottom:12px}
+.phase-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.phase-num{font-size:11px;font-family:monospace;color:var(--dim);min-width:24px}
+.phase-name{font-size:15px;font-weight:600;color:#fff}
+.phase-rule{font-size:13px;color:var(--cyan);padding:8px 14px;background:rgba(78,207,212,.06);border-radius:6px;margin-bottom:10px;border-left:3px solid var(--cyan)}
+.phase-components{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.phase-comp{font-size:13px;padding:3px 10px;background:var(--s3);border:1px solid var(--border);border-radius:4px}
+
+/* Variables */
+.var-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+@media(max-width:600px){.var-grid{grid-template-columns:1fr}}
+.var-card{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;text-align:center}
+.var-name{font-size:13px;font-weight:600;color:var(--gold);margin-bottom:4px}
+.var-q{font-size:12px;color:var(--mid)}
+
+/* Skip rules */
+.skip-card{background:var(--s1);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:10px;border-left:3px solid var(--pink)}
+.skip-cond{font-size:13px;color:var(--pink);font-weight:600;margin-bottom:4px}
+.skip-effect{font-size:13px;color:var(--text);margin-bottom:6px}
+.skip-example{font-size:14px;color:var(--mid);font-style:italic}
+
+/* Matrix */
+.matrix-card{background:var(--s1);border:1px solid var(--border);border-radius:8px;padding:18px 22px;margin-bottom:10px}
+.matrix-frag{font-size:17px;font-weight:600;color:#fff;margin-bottom:8px}
+.matrix-row{display:flex;gap:8px;margin-bottom:6px;font-size:13px}
+.matrix-label{color:var(--gold);min-width:80px;font-weight:500}
+.matrix-value{color:var(--text)}
+
+/* Correction */
+.corr-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin-bottom:14px}
+.corr-trigger{font-size:14px;font-weight:600;color:var(--orange);margin-bottom:10px}
+.corr-detect{font-size:13px;color:var(--mid);margin-bottom:10px;padding:8px 14px;background:var(--s2);border-radius:6px}
+.corr-orig{font-size:15px;color:var(--pink);margin-bottom:4px;text-decoration:line-through;opacity:.7}
+.corr-fixed{font-size:15px;color:var(--green);margin-bottom:10px}
+.corr-flow{font-size:12px;color:var(--cyan);padding:10px 14px;background:rgba(78,207,212,.05);border-radius:6px;border-left:3px solid var(--cyan);line-height:1.9}
+
+/* Correction markers */
+.marker-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:16px}
+@media(max-width:600px){.marker-grid{grid-template-columns:1fr}}
+.marker-item{background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:10px 14px}
+.marker-frag{font-size:15px;font-weight:600;color:#fff;margin-bottom:2px}
+.marker-desc{font-size:12px;color:var(--mid)}
+
+/* Generation demo */
+.gen-step{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin-bottom:12px;position:relative}
+.gen-step::before{content:'';position:absolute;left:36px;top:-12px;width:2px;height:12px;background:var(--border)}
+.gen-step:first-of-type::before{display:none}
+.gen-num{font-size:11px;font-family:monospace;color:var(--accent);margin-bottom:6px}
+.gen-action{font-size:14px;color:#fff;font-weight:500;margin-bottom:8px}
+.gen-eval{font-size:13px;color:var(--mid);margin-bottom:8px}
+.gen-candidates{margin-bottom:10px}
+.gen-cand{font-size:12px;padding:4px 0;display:flex;gap:8px}
+.gen-cand-frag{color:var(--text);min-width:120px}
+.gen-cand-note{color:var(--dim)}
+.gen-chosen{font-size:13px;color:var(--green);padding:8px 14px;background:rgba(94,191,123,.06);border-radius:6px;border-left:3px solid var(--green);margin-bottom:8px}
+.gen-output{font-size:15px;color:var(--cyan);font-family:monospace;padding:8px 14px;background:var(--s2);border-radius:6px}
+
+/* Final output */
+.final-box{background:linear-gradient(135deg,rgba(232,116,97,.08),rgba(94,191,123,.08));border:1px solid var(--accent);border-radius:12px;padding:28px 32px;text-align:center;margin:24px 0}
+.final-label{font-size:11px;color:var(--accent);letter-spacing:2px;margin-bottom:10px}
+.final-jp{font-size:22px;font-weight:600;color:#fff;line-height:1.6}
+
+/* Alt paths */
+.alt-card{background:var(--s1);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:10px}
+.alt-label{font-size:12px;color:var(--purple);font-weight:600;margin-bottom:6px}
+.alt-jp{font-size:15px;color:#fff;margin-bottom:6px}
+.alt-pipe{font-size:12px;color:var(--mid)}
+
+/* Rules */
+.rule-card{background:var(--s1);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:10px}
+.rule-id{font-size:11px;font-family:monospace;color:var(--accent);margin-bottom:4px}
+.rule-text{font-size:14px;font-weight:600;color:#fff;margin-bottom:4px}
+.rule-detail{font-size:13px;color:var(--mid)}
+
+/* Insight */
+.insight{background:linear-gradient(135deg,rgba(232,116,97,.08),rgba(154,122,224,.08));border:1px solid var(--accent);border-radius:10px;padding:20px 24px;font-size:14px;color:#fff;line-height:1.8;margin-bottom:24px}
+
+/* Formula */
+.formula{text-align:center;padding:16px;background:var(--s2);border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:15px;color:var(--cyan);margin:16px 0}
+</style>
+</head>
+<body>
+<div class="page">
+
+<nav class="nav">
+  <a href="#pipeline">调用顺序</a>
+  <a href="#selection">选择机制</a>
+  <a href="#correction">修正机制</a>
+  <a href="#generation">完整生成</a>
+  <a href="#rules">运行规则</a>
+</nav>
+
+<div class="hero">
+  <div class="hero-label">说话引擎 v2.0</div>
+  <h1>组件运行机制</h1>
+  <div class="sub">说话不是翻译思想，是实时协商——和自己协商确信度，和对方协商关系距离</div>
+</div>
+
+<!-- ═══════════════════════════════════ 1. 调用顺序 ═══════════════════════════════════ -->
+<div class="section" id="pipeline">
+  <div class="section-id">01</div>
+  <h2>组件调用顺序</h2>
+  <div class="desc">存在一个默认管线，但管线会根据实时条件被跳过、重复、或倒回</div>
+
+  <div class="pipeline">
+    <div class="pipe-block" data-t="eval">评估</div>
+    <div class="pipe-block" data-t="buf">启动缓冲</div>
+    <div class="pipe-block" data-t="cmp">力度压缩</div>
+    <div class="pipe-block" data-t="pay">语义载体</div>
+    <div class="pipe-block" data-t="dwn">降级包装</div>
+    <div class="pipe-block" data-t="exit">出口策略</div>
+  </div>
+
+  <!-- Phase 0 -->
+  <div class="phase">
+    <div class="phase-head"><span class="phase-num">0</span><span class="phase-name">评估阶段（不发声）</span></div>
+    <div style="font-size:13px;color:var(--mid);margin-bottom:12px">大脑评估三个变量，决定后续管线配置</div>
+    <div class="var-grid">
+      <div class="var-card"><div class="var-name">社交风险</div><div class="var-q">说了之后关系会受损吗？<br>0=安全 → 10=翻脸</div></div>
+      <div class="var-card"><div class="var-name">确信度</div><div class="var-q">我有多确定这件事？<br>0=直觉 → 10=铁证</div></div>
+      <div class="var-card"><div class="var-name">紧迫度</div><div class="var-q">必须现在说吗？<br>0=随时 → 10=来不及了</div></div>
+    </div>
+  </div>
+
+  <!-- Phase 1-5 -->
+  <div class="phase">
+    <div class="phase-head"><span class="phase-num">1</span><span class="phase-name">启动阶段</span></div>
+    <div class="phase-rule">社交风险 ≥ 4 → 放缓冲 ｜ 社交风险 < 4 → 跳过</div>
+    <div class="phase-components"><span class="phase-comp">なんか</span><span class="phase-comp">あのさ</span><span class="phase-comp">ていうか</span><span class="phase-comp">えっと</span><span class="phase-comp">いや</span><span class="phase-comp">まあ</span></div>
+  </div>
+  <div class="phase">
+    <div class="phase-head"><span class="phase-num">2</span><span class="phase-name">压缩阶段</span></div>
+    <div class="phase-rule">社交风险 ≥ 5 且 紧迫度 < 7 → 压缩 ｜ 否则跳过</div>
+    <div class="phase-components"><span class="phase-comp">ちょっと</span><span class="phase-comp">別に</span><span class="phase-comp">なんとなく</span><span class="phase-comp">たぶん</span><span class="phase-comp">一応</span></div>
+  </div>
+  <div class="phase">
+    <div class="phase-head"><span class="phase-num">3</span><span class="phase-name">语义阶段</span></div>
+    <div class="phase-rule">确信度越高 → 越重的词 ｜ 社交风险越高 → 越轻的词 ｜ 冲突时社交风险优先</div>
+    <div class="phase-components"><span class="phase-comp">違う</span><span class="phase-comp">おかしい</span><span class="phase-comp">微妙</span><span class="phase-comp">悪くない</span><span class="phase-comp">無理</span><span class="phase-comp">好き</span><span class="phase-comp">嫌</span></div>
+  </div>
+  <div class="phase">
+    <div class="phase-head"><span class="phase-num">4</span><span class="phase-name">包装阶段</span></div>
+    <div class="phase-rule">确信度 ≤ 7 或 社交风险 ≥ 5 → 降级 ｜ 确信度 > 7 且 社交风险 < 3 → 跳过</div>
+    <div class="phase-components"><span class="phase-comp">気がする</span><span class="phase-comp">かも</span><span class="phase-comp">かな</span><span class="phase-comp">っぽい</span><span class="phase-comp">感じ</span><span class="phase-comp">なんとも言えない</span></div>
+  </div>
+  <div class="phase">
+    <div class="phase-head"><span class="phase-num">5</span><span class="phase-name">出口阶段</span></div>
+    <div class="phase-rule">想让对方接 → んだけど ｜ 想要共识 → よね ｜ 想断言 → でしょ ｜ 想逃 → ...沉默</div>
+    <div class="phase-components"><span class="phase-comp">んだけど</span><span class="phase-comp">よね</span><span class="phase-comp">じゃない？</span><span class="phase-comp">けど</span><span class="phase-comp">し</span><span class="phase-comp">...</span><span class="phase-comp">知らんけど</span></div>
+  </div>
+
+  <h3 style="font-size:15px;color:#fff;margin:28px 0 14px">管线跳过规则</h3>
+
+  <div class="skip-card">
+    <div class="skip-cond">紧迫度 ≥ 9（紧急情况）</div>
+    <div class="skip-effect">跳过阶段1-2-4，直接：语义 → 出口</div>
+    <div class="skip-example">危ない！→ 没有缓冲、没有压缩、没有降级</div>
+  </div>
+  <div class="skip-card">
+    <div class="skip-cond">社交风险 = 0（自言自语）</div>
+    <div class="skip-effect">跳过阶段1-2，可能跳过5</div>
+    <div class="skip-example">あー疲れた → 没有缓冲、没有压缩、没有出口策略</div>
+  </div>
+  <div class="skip-card">
+    <div class="skip-cond">社交风险 ≥ 8（极度敏感话题）</div>
+    <div class="skip-effect">阶段1-2-4全部加载，可能重复加载</div>
+    <div class="skip-example">なんかちょっと...なんていうか...違う感じが...しないでもない...んだけど → 缓冲×2 压缩×1 降级×2</div>
+  </div>
+  <div class="skip-card">
+    <div class="skip-cond">确信度 = 10 且 社交风险低</div>
+    <div class="skip-effect">跳过阶段1-2-4</div>
+    <div class="skip-example">それ間違ってるよ → 直接语义 + 简单出口</div>
+  </div>
+
+  <h3 style="font-size:15px;color:#fff;margin:28px 0 14px">管线倒回规则</h3>
+  <div class="skip-card" style="border-left-color:var(--orange)">
+    <div class="skip-cond" style="color:var(--orange)">说到语义阶段时发现风险比预估高</div>
+    <div class="skip-effect">倒回到启动阶段重来</div>
+    <div class="skip-example">違う...あ、いやなんか、ちょっと違う気がするんだけど → 先输出了语义，发现太直接，倒回加缓冲+压缩+降级</div>
+  </div>
+  <div class="skip-card" style="border-left-color:var(--orange)">
+    <div class="skip-cond" style="color:var(--orange)">看到对方表情变化</div>
+    <div class="skip-effect">中断当前管线，启动修正管线</div>
+    <div class="skip-example">それおかしく...あ、いやごめん、そういう意味じゃなくて</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ 2. 选择机制 ═══════════════════════════════════ -->
+<div class="section" id="selection">
+  <div class="section-id">02</div>
+  <h2>选择机制</h2>
+  <div class="desc">同类组件之间如何选择——不是语法问题，是心理+社交的实时计算</div>
+
+  <h3 style="font-size:15px;color:#fff;margin-bottom:14px">缓冲组件选择</h3>
+
+  <div class="matrix-card">
+    <div class="matrix-frag">なんか</div>
+    <div class="matrix-row"><span class="matrix-label">选择条件</span><span class="matrix-value">社交风险中等(4-6) + 内容不太重要 + 想降低存在感</span></div>
+    <div class="matrix-row"><span class="matrix-label">心理状态</span><span class="matrix-value">「我说的可能不重要，别太当真」</span></div>
+    <div class="matrix-row"><span class="matrix-label">不选的情况</span><span class="matrix-value">内容重要且紧急 / 完全安全的环境</span></div>
+  </div>
+  <div class="matrix-card">
+    <div class="matrix-frag">あのさ</div>
+    <div class="matrix-row"><span class="matrix-label">选择条件</span><span class="matrix-value">有明确的话要说 + 需要对方注意力 + 关系亲密</span></div>
+    <div class="matrix-row"><span class="matrix-label">心理状态</span><span class="matrix-value">「我要讲一个事，你听着」</span></div>
+    <div class="matrix-row"><span class="matrix-label">不选的情况</span><span class="matrix-value">不确定要不要说 / 对方是上级</span></div>
+  </div>
+  <div class="matrix-card">
+    <div class="matrix-frag">ていうか</div>
+    <div class="matrix-row"><span class="matrix-label">选择条件</span><span class="matrix-value">要修正前面的话 + 不想正面对撞</span></div>
+    <div class="matrix-row"><span class="matrix-label">心理状态</span><span class="matrix-value">「你说的不是重点，我的才是」</span></div>
+    <div class="matrix-row"><span class="matrix-label">不选的情况</span><span class="matrix-value">没有前文可修正 / 第一次开口</span></div>
+  </div>
+  <div class="matrix-card">
+    <div class="matrix-frag">いや</div>
+    <div class="matrix-row"><span class="matrix-label">选择条件</span><span class="matrix-value">第一反应是否定 + 来不及包装</span></div>
+    <div class="matrix-row"><span class="matrix-label">心理状态</span><span class="matrix-value">「等等，不对」</span></div>
+    <div class="matrix-row"><span class="matrix-label">不选的情况</span><span class="matrix-value">同意对方的时候 / 需要温和开场</span></div>
+  </div>
+  <div class="matrix-card">
+    <div class="matrix-frag">まあ</div>
+    <div class="matrix-row"><span class="matrix-label">选择条件</span><span class="matrix-value">不想深入 + 想快速给表面结论</span></div>
+    <div class="matrix-row"><span class="matrix-label">心理状态</span><span class="matrix-value">「算了，差不多就这样吧」</span></div>
+    <div class="matrix-row"><span class="matrix-label">不选的情况</span><span class="matrix-value">有强烈意见 / 事情很重要</span></div>
+  </div>
+
+  <h3 style="font-size:15px;color:#fff;margin:28px 0 14px">降级方式选择：为什么有时直接说「違う」有时说「違う気がする」</h3>
+
+  <div class="matrix-card" style="border-left:3px solid var(--accent)">
+    <div class="matrix-frag">直接说「違う」</div>
+    <div class="matrix-row"><span class="matrix-label">条件</span><span class="matrix-value">确信度 ≥ 8 ｜ 社交风险 ≤ 3 ｜ 关系亲密或地位高 ｜ 紧迫度高</span></div>
+  </div>
+  <div class="matrix-card" style="border-left:3px solid var(--gold)">
+    <div class="matrix-frag">「違う気がする」</div>
+    <div class="matrix-row"><span class="matrix-label">条件</span><span class="matrix-value">确信度 ≤ 7 或 社交风险 ≥ 5 ｜ 不想承担断言后果 ｜ 给自己留退路</span></div>
+  </div>
+  <div class="matrix-card" style="border-left:3px solid var(--blue)">
+    <div class="matrix-frag">「違うかも」</div>
+    <div class="matrix-row"><span class="matrix-label">条件</span><span class="matrix-value">确信度 5-7 ｜ 社交风险中等 ｜ 比気がする更随意更短</span></div>
+  </div>
+  <div class="matrix-card" style="border-left:3px solid var(--purple)">
+    <div class="matrix-frag">「違うっぽい」</div>
+    <div class="matrix-row"><span class="matrix-label">条件</span><span class="matrix-value">基于表面印象 ｜ 没认真想 ｜ 不想负任何责任</span></div>
+  </div>
+  <div class="matrix-card" style="border-left:3px solid var(--pink)">
+    <div class="matrix-frag">「なんとも言えない」</div>
+    <div class="matrix-row"><span class="matrix-label">条件</span><span class="matrix-value">有明确判断但选择不说 ｜ 社交风险 ≥ 7 ｜ 后果不可控</span></div>
+  </div>
+
+  <div class="formula">降级程度 = 社交风险 × (1 - 亲密度) × (1 / 紧迫度)</div>
+
+  <h3 style="font-size:15px;color:#fff;margin:28px 0 14px">出口选择</h3>
+  <div class="matrix-card"><div class="matrix-frag">んだけど</div><div class="matrix-row"><span class="matrix-label">效果</span><span class="matrix-value">打开通道不关门 — 想让对方推断你的意思</span></div></div>
+  <div class="matrix-card"><div class="matrix-frag">よね</div><div class="matrix-row"><span class="matrix-label">效果</span><span class="matrix-value">把个人判断变成共享判断 — 需要对方确认</span></div></div>
+  <div class="matrix-card"><div class="matrix-frag">じゃない？</div><div class="matrix-row"><span class="matrix-label">效果</span><span class="matrix-value">形式是问句，实际是断言 — 比よね更强势</span></div></div>
+  <div class="matrix-card"><div class="matrix-frag">...（沉默）</div><div class="matrix-row"><span class="matrix-label">效果</span><span class="matrix-value">最高级的间接表达 — 什么都不说让对方自己填</span></div></div>
+  <div class="matrix-card"><div class="matrix-frag">知らんけど</div><div class="matrix-row"><span class="matrix-label">效果</span><span class="matrix-value">事后免责声明 — 说了判断但撤回全部责任</span></div></div>
+</div>
+
+<!-- ═══════════════════════════════════ 3. 修正机制 ═══════════════════════════════════ -->
+<div class="section" id="correction">
+  <div class="section-id">03</div>
+  <h2>修正机制</h2>
+  <div class="desc">说话者在说的过程中实时监听自己、观察对方、调整输出</div>
+
+  <div class="corr-card">
+    <div class="corr-trigger">触发1：自检 — 说太直接了</div>
+    <div class="corr-detect">说出核心判断后，内心评估：「刚才那句太重了」</div>
+    <div class="corr-orig">それ間違ってる。</div>
+    <div class="corr-fixed">それ間違ってる...っていうか、なんか違う気がするんだけど</div>
+    <div class="corr-flow">语义(間違ってる) → 自检(太重了) → 切换(っていうか) → 缓冲(なんか) → 替换语义(違う) → 降级(気がする) → 出口(んだけど)</div>
+  </div>
+
+  <div class="corr-card">
+    <div class="corr-trigger">触发2：对方反应 — 看到对方表情变了</div>
+    <div class="corr-detect">对方皱眉/沉默/语气变冷</div>
+    <div class="corr-orig">それおかしいでしょ。</div>
+    <div class="corr-fixed">それおかしい...あ、ごめん、言い方悪かった。なんかちょっと引っかかるところがあるんだけど</div>
+    <div class="corr-flow">语义(おかしい) → 检测对方反应 → 中断 → 道歉(ごめん) → 认错(言い方悪かった) → 重启：缓冲(なんか) → 压缩(ちょっと) → 替换语义(引っかかる) → 出口(んだけど)</div>
+  </div>
+
+  <div class="corr-card">
+    <div class="corr-trigger">触发3：精度 — 自己说的不准确</div>
+    <div class="corr-detect">说完后觉得「不对，我要表达的不是这个」</div>
+    <div class="corr-orig">嫌いなんだよね。</div>
+    <div class="corr-fixed">嫌いっていうか...なんていうか、合わないのかな。嫌いじゃないんだけど、なんか...ね</div>
+    <div class="corr-flow">语义(嫌い) → 自检(不准确) → 切换(っていうか) → 搜索(なんていうか) → 替换语义(合わない) → 降级(かな) → 再自检 → 否定前文(嫌いじゃない) → 出口(んだけど) → 留白(なんか...ね)</div>
+  </div>
+
+  <div class="corr-card">
+    <div class="corr-trigger">触发4：过度 — 对方把你的话放大了</div>
+    <div class="corr-detect">对方的反应比预期更大：「え、辞めたいの？」</div>
+    <div class="corr-orig">ちょっと疲れた</div>
+    <div class="corr-fixed">いやいや、そこまで言ってないって。ちょっと今日疲れただけ</div>
+    <div class="corr-flow">检测过度解读 → 否定(いやいや) → 范围纠正(そこまで言ってない) → 重新限定(ちょっと今日) → 语义重述(疲れただけ)</div>
+  </div>
+
+  <h3 style="font-size:15px;color:#fff;margin:28px 0 14px">修正标记选择</h3>
+  <div class="marker-grid">
+    <div class="marker-item"><div class="marker-frag">いや</div><div class="marker-desc">最快的中断 — 反射性否定前文</div></div>
+    <div class="marker-item"><div class="marker-frag">ていうか</div><div class="marker-desc">方向修正 —「不是那个，是这个」</div></div>
+    <div class="marker-item"><div class="marker-frag">そうじゃなくて</div><div class="marker-desc">理解修正 —「你听错了」</div></div>
+    <div class="marker-item"><div class="marker-frag">ごめん</div><div class="marker-desc">关系修复 — 先道歉再重说</div></div>
+    <div class="marker-item"><div class="marker-frag">あ、やっぱ</div><div class="marker-desc">决定修正 —「我改主意了」</div></div>
+    <div class="marker-item"><div class="marker-frag">今のなしで</div><div class="marker-desc">完全撤回 —「当我没说」</div></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ 4. 完整生成 ═══════════════════════════════════ -->
+<div class="section" id="generation">
+  <div class="section-id">04</div>
+  <h2>完整生成示例</h2>
+  <div class="desc">场景：觉得对方说错了，但不想伤人</div>
+
+  <div class="insight">
+    对方说：「あの店まずいよね」<br>
+    你的内心：不对吧...我觉得那家店挺好吃的
+  </div>
+
+  <!-- Step 0 -->
+  <div class="gen-step">
+    <div class="gen-num">STEP 0 — 评估（不发声）</div>
+    <div class="gen-action">大脑计算三个变量</div>
+    <div class="var-grid">
+      <div class="var-card"><div class="var-name">社交风险 = 6</div><div class="var-q">直接反驳朋友会让气氛尴尬</div></div>
+      <div class="var-card"><div class="var-name">确信度 = 7</div><div class="var-q">去过好几次，确实觉得好吃</div></div>
+      <div class="var-card"><div class="var-name">紧迫度 = 2</div><div class="var-q">不说也行，但想说</div></div>
+    </div>
+    <div class="gen-chosen">决定：说，但需要完整的包装管线</div>
+  </div>
+
+  <!-- Step 1 -->
+  <div class="gen-step">
+    <div class="gen-num">STEP 1 — 启动阶段</div>
+    <div class="gen-eval">社交风险=6 ≥ 4 → 需要缓冲</div>
+    <div class="gen-candidates">
+      <div class="gen-cand"><span class="gen-cand-frag">なんか</span><span class="gen-cand-note">可以 — 降低分量</span></div>
+      <div class="gen-cand"><span class="gen-cand-frag">いや</span><span class="gen-cand-note">可以但偏硬 — 直接否定了对方</span></div>
+      <div class="gen-cand"><span class="gen-cand-frag">えー</span><span class="gen-cand-note">太惊讶 — 暗示对方很离谱</span></div>
+    </div>
+    <div class="gen-chosen">选择：えー（轻度惊讶）+ いや（轻度否定）——表达「跟我想的不一样」但不攻击</div>
+    <div class="gen-output">えー、いや...</div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="gen-step">
+    <div class="gen-num">STEP 2 — 压缩阶段</div>
+    <div class="gen-eval">社交风险=6 ≥ 5 且 紧迫度=2 < 7 → 需要压缩</div>
+    <div class="gen-candidates">
+      <div class="gen-cand"><span class="gen-cand-frag">ちょっと</span><span class="gen-cand-note">标准选择</span></div>
+      <div class="gen-cand"><span class="gen-cand-frag">そんなに</span><span class="gen-cand-note">「没你说的那么差」比直接反驳温和</span></div>
+      <div class="gen-cand"><span class="gen-cand-frag">別に</span><span class="gen-cand-note">太冷淡</span></div>
+    </div>
+    <div class="gen-chosen">选择：そんなに — 不说「不一样」而是说「没那么严重」</div>
+    <div class="gen-output">えー、いや、そんなに...</div>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="gen-step">
+    <div class="gen-num">STEP 3 — 语义阶段</div>
+    <div class="gen-eval">确信度=7 但 社交风险=6 → 选轻量语义词</div>
+    <div class="gen-candidates">
+      <div class="gen-cand"><span class="gen-cand-frag">まずくない</span><span class="gen-cand-note">双重否定 =「不难吃」（实际=好吃）</span></div>
+      <div class="gen-cand"><span class="gen-cand-frag">美味しい</span><span class="gen-cand-note">太直接 — 正面否定了朋友</span></div>
+      <div class="gen-cand"><span class="gen-cand-frag">悪くない</span><span class="gen-cand-note">低温正面 — 但跟食物不够自然</span></div>
+    </div>
+    <div class="gen-chosen">选择：まずくなくない？ — 双重否定 + 疑问 = 最安全的反驳形式</div>
+    <div class="gen-output">えー、いや、そんなにまずくなくない？</div>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="gen-step">
+    <div class="gen-num">STEP 4 — 包装阶段</div>
+    <div class="gen-eval">疑问形式（なくない？）已内含降级功能</div>
+    <div class="gen-chosen">跳过 —「まずくなくない？」本身就是「我不是在断言，是在问你」</div>
+  </div>
+
+  <!-- Step 5 -->
+  <div class="gen-step">
+    <div class="gen-num">STEP 5 — 出口阶段</div>
+    <div class="gen-eval">需要继续解释立场但不想对立</div>
+    <div class="gen-chosen">追加个人经验作为缓冲理由 — 不说「你错了」而是「我的经验不一样」</div>
+    <div class="gen-output">えー、いや、そんなにまずくなくない？私この前行った時は普通に美味しかったけどな</div>
+  </div>
+
+  <!-- Step 6 -->
+  <div class="gen-step">
+    <div class="gen-num">STEP 6 — 实时自检</div>
+    <div class="gen-eval">回顾整句 —「普通に美味しかった」太确定了，有风险</div>
+    <div class="gen-chosen">追加降级：把分歧归因于客观因素</div>
+    <div class="gen-output">...たぶん日によるのかも</div>
+  </div>
+
+  <div class="final-box">
+    <div class="final-label">最终输出</div>
+    <div class="final-jp">えー、いや、そんなにまずくなくない？<br>私この前行った時は普通に美味しかったけどな...<br>たぶん日によるのかも</div>
+  </div>
+
+  <h3 style="font-size:15px;color:#fff;margin:28px 0 14px">替代路径对比</h3>
+
+  <div class="alt-card">
+    <div class="alt-label">低包装版（亲密朋友）</div>
+    <div class="alt-jp">え、まじ？私あそこ好きだけどな</div>
+    <div class="alt-pipe">即时反应(え) → 语义(好き) → 出口悬挂(けどな) ｜ 跳过：压缩、降级</div>
+  </div>
+  <div class="alt-card">
+    <div class="alt-label">高包装版（不太熟的人）</div>
+    <div class="alt-jp">あー...そうなんだ。なんか私が行った時はそんなに悪くなかった気がするんだけど...好みの問題かもね</div>
+    <div class="alt-pipe">反应(あー) → 假装接受(そうなんだ) → 缓冲(なんか) → 压缩(そんなに) → 语义(悪くなかった) → 降级(気がする) → 出口(んだけど) → 社交保险(好みの問題かも)</div>
+  </div>
+  <div class="alt-card">
+    <div class="alt-label">零包装版（吵架模式）</div>
+    <div class="alt-jp">は？普通に美味しいでしょあの店</div>
+    <div class="alt-pipe">反应(は？) → 语义(美味しい) → 出口断言(でしょ) ｜ 跳过：缓冲、压缩、降级全部跳过</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ 5. 运行规则 ═══════════════════════════════════ -->
+<div class="section" id="rules">
+  <div class="section-id">05</div>
+  <h2>运行规则</h2>
+  <div class="desc">10条核心规则</div>
+
+  <div class="rule-card"><div class="rule-id">R01</div><div class="rule-text">社交风险决定管线长度</div><div class="rule-detail">风险越高，启用的阶段越多。风险=0时管线可以只有语义+出口两个阶段</div></div>
+  <div class="rule-card"><div class="rule-id">R02</div><div class="rule-text">确信度和社交风险冲突时，社交风险优先</div><div class="rule-detail">即使100%确定对方错了，如果社交风险高，仍然会降级。日语口语中「正确」不如「关系安全」重要</div></div>
+  <div class="rule-card"><div class="rule-id">R03</div><div class="rule-text">紧迫度可以覆盖一切</div><div class="rule-detail">当紧迫度=10，所有包装层被跳过。「危ない！」不会变成「なんかちょっと危ない気がするんだけど」</div></div>
+  <div class="rule-card"><div class="rule-id">R04</div><div class="rule-text">管线可以在任意阶段倒回</div><div class="rule-detail">说到一半发现风险评估错了，可以中断、道歉、从头重来。这就是为什么日语口语充满了いや、ていうか、そうじゃなくて</div></div>
+  <div class="rule-card"><div class="rule-id">R05</div><div class="rule-text">同一阶段可以重复加载</div><div class="rule-detail">社交风险极高时，缓冲可以叠两三层：なんか...あの...ちょっと。降级也可以叠加</div></div>
+  <div class="rule-card"><div class="rule-id">R06</div><div class="rule-text">出口选择决定对话走向</div><div class="rule-detail">んだけど=把球传给对方 ｜ よね=拉对方站自己这边 ｜ ...沉默=我说完了你自己想</div></div>
+  <div class="rule-card"><div class="rule-id">R07</div><div class="rule-text">修正管线随时可以抢占主管线</div><div class="rule-detail">一旦检测到问题（自检或对方反应），修正管线立即中断主管线并接管</div></div>
+  <div class="rule-card"><div class="rule-id">R08</div><div class="rule-text">语义载体在整个管线中占比最小</div><div class="rule-detail">完整的日语口语句中，实际语义内容通常只有1-2个词。其余全部是调节机制</div></div>
+  <div class="rule-card"><div class="rule-id">R09</div><div class="rule-text">亲密度反向影响管线长度</div><div class="rule-detail">越亲密的关系管线越短。跟最好的朋友和跟不太熟的人说话，同一个想法产生完全不同长度的句子</div></div>
+  <div class="rule-card"><div class="rule-id">R10</div><div class="rule-text">疑问形式可以替代降级阶段</div><div class="rule-detail">把判断变成问题（〜くない？/〜じゃない？）本身就完成了降级——你不是在断言，是在「问」</div></div>
+</div>
+
+</div>
+</body>
+</html>
