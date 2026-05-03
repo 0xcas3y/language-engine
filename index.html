@@ -133,15 +133,8 @@ textarea::placeholder{color:var(--dim)}
 <div id="settings-modal">
   <div class="modal-box">
     <h2>API Keys</h2>
-    <p>储存在本地浏览器，不会上传。</p>
-    <div style="margin-bottom:10px">
-      <div style="font-size:11px;color:var(--dim);margin-bottom:4px;letter-spacing:1px">ANTHROPIC (AI 翻译/纠错)</div>
-      <input type="password" id="key-input" placeholder="sk-ant-...">
-    </div>
-    <div>
-      <div style="font-size:11px;color:var(--dim);margin-bottom:4px;letter-spacing:1px">GOOGLE TTS (朗读日語)</div>
-      <input type="password" id="gtts-input" placeholder="AIza...">
-    </div>
+    <p>Anthropic API Key，储存在本地浏览器，不会上传。</p>
+    <input type="password" id="key-input" placeholder="sk-ant-...">
     <div class="modal-actions">
       <button class="btn-save" id="key-save">保存</button>
       <button class="btn-cancel" id="key-cancel">取消</button>
@@ -213,17 +206,13 @@ let scriptMode = 'learn';
 // ── API Key ───────────────────────────────────────────
 function getKey(){ return localStorage.getItem('anthropic_key') || '' }
 function setKey(k){ localStorage.setItem('anthropic_key', k) }
-function getGKey(){ return localStorage.getItem('google_tts_key') || '' }
-function setGKey(k){ localStorage.setItem('google_tts_key', k) }
 
 document.getElementById('settings-btn').onclick = () => {
   document.getElementById('key-input').value = getKey();
-  document.getElementById('gtts-input').value = getGKey();
   document.getElementById('settings-modal').classList.add('open');
 };
 document.getElementById('key-save').onclick = () => {
   setKey(document.getElementById('key-input').value.trim());
-  setGKey(document.getElementById('gtts-input').value.trim());
   document.getElementById('settings-modal').classList.remove('open');
 };
 document.getElementById('key-cancel').onclick = () => {
@@ -606,73 +595,52 @@ document.getElementById('btn-script').onclick = runScript;
   });
 });
 
-// ── Google TTS ────────────────────────────────────────
-let currentAudio = null;
+// ── TTS (Web Speech API — 免费，无需 API Key) ─────────
+// 预加载日语声音
+let _jaVoice = null;
+function getJaVoice() {
+  if(_jaVoice) return _jaVoice;
+  const voices = window.speechSynthesis.getVoices();
+  _jaVoice = voices.find(v => v.lang === 'ja-JP')
+          || voices.find(v => v.lang.startsWith('ja'))
+          || null;
+  return _jaVoice;
+}
+window.speechSynthesis.onvoiceschanged = () => { _jaVoice = null; };
 
-async function playTTS(text, btn) {
-  const gkey = getGKey();
-  if(!gkey) { alert('请先在 ⚙ 设置里填入 Google TTS API Key'); return; }
+function resetTtsBtns() {
+  document.querySelectorAll('.tts-btn').forEach(b => {
+    b.classList.remove('playing');
+    b.textContent = '▶ 朗読';
+    b._wasPlaying = false;
+  });
+}
 
-  // stop if already playing
-  if(currentAudio) {
-    currentAudio.pause();
-    currentAudio = null;
-    document.querySelectorAll('.tts-btn').forEach(b => {
-      b.classList.remove('playing');
-      b.textContent = '▶ 朗読';
-      b.disabled = false;
-    });
-    if(btn._wasPlaying) { btn._wasPlaying = false; return; }
+function playTTS(text, btn) {
+  // 如果正在播放，先停
+  if(window.speechSynthesis.speaking) {
+    window.speechSynthesis.cancel();
+    resetTtsBtns();
+    // 点同一个按钮 = 停止
+    if(btn._wasPlaying) return;
   }
 
-  btn.disabled = true;
-  btn.textContent = '⏳';
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = 'ja-JP';
+  utt.rate = 0.88;
+  utt.pitch = 1;
+  const voice = getJaVoice();
+  if(voice) utt.voice = voice;
 
-  try {
-    const resp = await fetch(
-      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${gkey}`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          input: { text },
-          voice: { languageCode: 'ja-JP', name: 'ja-JP-Neural2-B' },
-          audioConfig: { audioEncoding: 'MP3', speakingRate: 0.9, pitch: 0 }
-        })
-      }
-    );
-    if(!resp.ok) {
-      const e = await resp.json();
-      throw new Error(e.error?.message || resp.statusText);
-    }
-    const { audioContent } = await resp.json();
+  btn.classList.add('playing');
+  btn.textContent = '■ 停止';
+  btn._wasPlaying = true;
 
-    // base64 → blob → audio
-    const binary = atob(audioContent);
-    const bytes = new Uint8Array(binary.length);
-    for(let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: 'audio/mpeg' });
-    const url = URL.createObjectURL(blob);
+  utt.onend = utt.onerror = () => {
+    resetTtsBtns();
+  };
 
-    currentAudio = new Audio(url);
-    btn.classList.add('playing');
-    btn.textContent = '■ 停止';
-    btn.disabled = false;
-    btn._wasPlaying = true;
-
-    currentAudio.onended = () => {
-      btn.classList.remove('playing');
-      btn.textContent = '▶ 朗読';
-      btn._wasPlaying = false;
-      currentAudio = null;
-      URL.revokeObjectURL(url);
-    };
-    currentAudio.play();
-  } catch(e) {
-    btn.disabled = false;
-    btn.textContent = '▶ 朗読';
-    alert('TTS 错误: ' + e.message);
-  }
+  window.speechSynthesis.speak(utt);
 }
 
 function ttsBtn(text) {
