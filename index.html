@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>日語工具</title>
+<script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -120,6 +122,10 @@ textarea::placeholder{color:var(--dim)}
 .tts-btn:hover{border-color:var(--green);color:var(--green)}
 .tts-btn.playing{border-color:var(--green);color:var(--green);background:rgba(94,191,123,.08)}
 .tts-btn:disabled{opacity:.4;cursor:not-allowed}
+/* PDF */
+.pdf-btn{display:inline-flex;align-items:center;gap:4px;margin-top:10px;margin-left:8px;padding:5px 12px;background:none;border:1px solid var(--border);border-radius:20px;color:var(--mid);font-size:12px;cursor:pointer;transition:all .15s}
+.pdf-btn:hover{border-color:var(--gold);color:var(--gold)}
+.pdf-btn:disabled{opacity:.4;cursor:not-allowed}
 
 /* Scrollbar */
 ::-webkit-scrollbar{width:4px}
@@ -438,6 +444,10 @@ function renderTranslate(el, data) {
     </div>`;
   el.innerHTML = html;
   el.querySelector('#tr-main').appendChild(ttsBtn(data.translation));
+  el.querySelector('#tr-main').appendChild(pdfBtn(
+    [{ label:'翻訳結果', text: data.translation }],
+    '翻訳'
+  ));
 }
 
 function renderCorrect(el, data) {
@@ -472,6 +482,12 @@ function renderCorrect(el, data) {
   el.innerHTML = html;
   if(data.corrected) el.querySelector('#cr-corrected').appendChild(ttsBtn(data.corrected));
   if(data.native)    el.querySelector('#cr-native').appendChild(ttsBtn(data.native));
+  if(data.corrected || data.native) {
+    const sections = [];
+    if(data.corrected) sections.push({ label:'修正版', text: data.corrected });
+    if(data.native)    sections.push({ label:'日本人的说法', text: data.native });
+    el.querySelector('#cr-native').appendChild(pdfBtn(sections, '纠错'));
+  }
 }
 
 function renderLearn(el, data) {
@@ -545,7 +561,14 @@ function renderGen(el, data) {
 
   el.innerHTML = html;
   const fullText = [data.hook, data.main, data.close].filter(Boolean).join('\n\n');
-  el.querySelector('#gen-tts-row').appendChild(ttsBtn(fullText));
+  const ttsRow = el.querySelector('#gen-tts-row');
+  ttsRow.appendChild(ttsBtn(fullText));
+  const scriptSections = [
+    { label:'开场', text: data.hook },
+    { label:'主体', text: data.main },
+    { label:'収尾', text: data.close },
+  ].filter(s => s.text);
+  ttsRow.appendChild(pdfBtn(scriptSections, '口播脚本'));
 }
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
@@ -674,6 +697,100 @@ function ttsBtn(text) {
   btn.className = 'tts-btn';
   btn.textContent = '▶ 朗読';
   btn.onclick = () => playTTS(text, btn);
+  return btn;
+}
+
+// ── Kuroshiro (furigana) ──────────────────────────────
+let _kuroshiro = null;
+let _kuroshiroLoading = false;
+let _kuroshiroCallbacks = [];
+
+async function getKuroshiro() {
+  if(_kuroshiro) return _kuroshiro;
+  if(_kuroshiroLoading) {
+    return new Promise(res => _kuroshiroCallbacks.push(res));
+  }
+  _kuroshiroLoading = true;
+  const k = new Kuroshiro();
+  await k.init(new KuromojiAnalyzer({
+    dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict'
+  }));
+  _kuroshiro = k;
+  _kuroshiroCallbacks.forEach(cb => cb(k));
+  _kuroshiroCallbacks = [];
+  return k;
+}
+
+async function toFuriganaHtml(text) {
+  const k = await getKuroshiro();
+  return await k.convert(text, { mode: 'furigana', to: 'hiragana' });
+}
+
+const SECTION_COLORS = {
+  '开场':'#e87461','主体':'#5ea8d4','收尾':'#4ecfd4',
+  '翻訳結果':'#5ebf7b','修正版':'#5ea8d4','日本人的说法':'#9a7ae0',
+};
+
+async function exportPDF(sections, title) {
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  btn.textContent = '⏳ 处理中...';
+
+  try {
+    const processed = await Promise.all(
+      sections.map(async s => ({
+        label: s.label,
+        html: await toFuriganaHtml(s.text),
+      }))
+    );
+
+    const sectionsHtml = processed.map(s => {
+      const color = SECTION_COLORS[s.label] || '#888';
+      return `<div class="section">
+        <div class="section-label" style="color:${color};border-left-color:${color}">${s.label}</div>
+        <div class="section-body">${s.html}</div>
+      </div>`;
+    }).join('');
+
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<title>${title}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif;
+  background:#faf9f7;color:#1a1a1a;padding:40px 48px 60px;font-size:14px;line-height:2.4}
+h1{font-size:20px;font-weight:700;margin-bottom:4px}
+.meta{font-size:12px;color:#888;margin-bottom:32px;padding-bottom:14px;border-bottom:1px solid #ddd}
+.section{margin-bottom:24px}
+.section-label{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  padding:3px 0 3px 10px;border-left:3px solid;margin-bottom:10px}
+.section-body p{margin-bottom:10px;font-size:15px}
+ruby{ruby-align:center}
+rt{font-size:9px;color:#777;font-weight:normal}
+.print-btn{position:fixed;bottom:24px;right:24px;padding:10px 20px;background:#e87461;
+  color:#fff;border:none;border-radius:20px;font-size:13px;cursor:pointer}
+@media print{.print-btn{display:none}}
+</style></head>
+<body>
+<h1>${title}</h1>
+<div class="meta">日語工具 · 汉字注音版</div>
+${sectionsHtml}
+<button class="print-btn" onclick="window.print()">打印 / 保存 PDF</button>
+</body></html>`);
+    win.document.close();
+  } catch(e) {
+    alert('导出失败: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = '📄 导出 PDF';
+}
+
+function pdfBtn(sections, title) {
+  const btn = document.createElement('button');
+  btn.className = 'pdf-btn';
+  btn.textContent = '📄 导出 PDF';
+  btn.onclick = (e) => exportPDF(sections, title);
   return btn;
 }
 
