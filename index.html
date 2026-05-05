@@ -247,7 +247,7 @@ document.querySelectorAll('.mode-btn').forEach(b => {
 });
 
 // ── Claude API ────────────────────────────────────────
-async function callClaude(systemText, userText, onChunk) {
+async function callClaude(systemText, userText, onChunk, maxTokens = 1500) {
   const key = getKey();
   if(!key) { alert('请先设置 API Key（右上角 ⚙）'); return null; }
 
@@ -271,7 +271,7 @@ async function callClaude(systemText, userText, onChunk) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1500,
+      max_tokens: maxTokens,
       system: [{ type: 'text', text: fullSystem, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userText }],
       stream: true
@@ -374,13 +374,19 @@ const SYS_GEN = `你是日本YouTuber脚本生成专家。根据用户描述，�
 真实例句参考：
 {{EXAMPLES}}
 
-输出严格JSON：
-{
-  "script": "完整脚本，用 [HOOK] [MAIN] [CLOSE] 标注段落",
-  "hook_type": "使用的钩子类型",
-  "key_phrases": ["亮点表达1", "亮点表达2", "亮点表达3", "亮点表达4", "亮点表达5"],
-  "duration": "预计朗读时长（如：约2分钟）"
-}`;
+严格按以下格式输出，不要加任何额外说明：
+
+[HOOK]
+开场内容
+
+[MAIN]
+主体内容
+
+[CLOSE]
+收尾内容
+
+[META]
+{"hook_type":"钩子类型","key_phrases":["表达1","表达2","表达3","表达4","表达5"],"duration":"约X分钟"}`;
 
 // ── Render helpers ────────────────────────────────────
 function loading(el) {
@@ -391,6 +397,28 @@ function parseJSON(text) {
   const m = text.match(/\{[\s\S]*\}/);
   if(!m) throw new Error('no JSON');
   return JSON.parse(m[0]);
+}
+
+function parseGenRaw(text) {
+  // 解析 [HOOK]/[MAIN]/[CLOSE]/[META] 分段格式
+  const sections = {};
+  const re = /\[(HOOK|MAIN|CLOSE|META)\]\s*([\s\S]*?)(?=\n\[(?:HOOK|MAIN|CLOSE|META)\]|$)/g;
+  let m;
+  while((m = re.exec(text)) !== null) {
+    sections[m[1]] = m[2].trim();
+  }
+  let meta = {};
+  if(sections.META) {
+    try { meta = JSON.parse(sections.META); } catch{}
+  }
+  return {
+    hook: sections.HOOK || '',
+    main: sections.MAIN || '',
+    close: sections.CLOSE || '',
+    hook_type: meta.hook_type || '',
+    key_phrases: meta.key_phrases || [],
+    duration: meta.duration || '',
+  };
 }
 
 function renderTranslate(el, data) {
@@ -482,27 +510,23 @@ function renderLearn(el, data) {
 }
 
 function renderGen(el, data) {
-  if(!data.script) { el.innerHTML = '<div class="result-card">生成失败，请重试</div>'; return; }
+  if(!data.hook && !data.main && !data.close) {
+    el.innerHTML = '<div class="result-card">生成失败，请重试</div>'; return;
+  }
 
-  const parts = data.script
-    .replace(/\[HOOK\]/g, '|||HOOK|||')
-    .replace(/\[MAIN\]/g, '|||MAIN|||')
-    .replace(/\[CLOSE\]/g, '|||CLOSE|||')
-    .split('|||');
+  const sections = [
+    { label:'开场', text: data.hook },
+    { label:'主体', text: data.main },
+    { label:'收尾', text: data.close },
+  ];
 
-  const labels = { HOOK:'开场', MAIN:'主体', CLOSE:'收尾' };
-  let html = '<div class="result-card">';
-  let curLabel = null;
-
-  parts.forEach(p => {
-    p = p.trim();
-    if(!p) return;
-    if(labels[p]) { curLabel = p; return; }
+  let html = '<div class="result-card" id="gen-script-card">';
+  sections.forEach(s => {
+    if(!s.text) return;
     html += `<div class="script-block">
-      ${curLabel ? `<div class="script-label">${labels[curLabel]}</div>` : ''}
-      <div class="script-text">${esc(p)}</div>
+      <div class="script-label">${s.label}</div>
+      <div class="script-text">${esc(s.text)}</div>
     </div>`;
-    curLabel = null;
   });
   html += '<div id="gen-tts-row"></div></div>';
 
@@ -520,9 +544,8 @@ function renderGen(el, data) {
     </div>`;
 
   el.innerHTML = html;
-  // TTS for full script (strip markup tags before sending)
-  const plainScript = data.script.replace(/\[(HOOK|MAIN|CLOSE)\]/g, '').trim();
-  el.querySelector('#gen-tts-row').appendChild(ttsBtn(plainScript));
+  const fullText = [data.hook, data.main, data.close].filter(Boolean).join('\n\n');
+  el.querySelector('#gen-tts-row').appendChild(ttsBtn(fullText));
 }
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
@@ -570,12 +593,15 @@ async function runScript() {
   const btn = document.getElementById('btn-script');
   loading(el); btn.disabled = true;
   try {
-    const sys = scriptMode === 'learn' ? SYS_LEARN : SYS_GEN;
-    const raw = await callClaude(sys, input, null);
-    if(!raw) { btn.disabled = false; return; }
-    const data = parseJSON(raw);
-    if(scriptMode === 'learn') renderLearn(el, data);
-    else renderGen(el, data);
+    if(scriptMode === 'learn') {
+      const raw = await callClaude(SYS_LEARN, input, null, 1500);
+      if(!raw) { btn.disabled = false; return; }
+      renderLearn(el, parseJSON(raw));
+    } else {
+      const raw = await callClaude(SYS_GEN, input, null, 3000);
+      if(!raw) { btn.disabled = false; return; }
+      renderGen(el, parseGenRaw(raw));
+    }
   } catch(e) { errCard(el, e.message); }
   btn.disabled = false;
 }
