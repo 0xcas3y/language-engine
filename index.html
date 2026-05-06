@@ -674,8 +674,10 @@ document.getElementById('btn-script').onclick = runScript;
 });
 
 // ── TTS (Web Speech API — 免费，无需 API Key) ─────────
-// 预加载日语声音
 let _jaVoice = null;
+let _activeBtn = null;
+let _chromeKeepAlive = null;
+
 function getJaVoice() {
   if(_jaVoice) return _jaVoice;
   const voices = window.speechSynthesis.getVoices();
@@ -686,22 +688,22 @@ function getJaVoice() {
 }
 window.speechSynthesis.onvoiceschanged = () => { _jaVoice = null; };
 
-function resetTtsBtns() {
-  document.querySelectorAll('.tts-btn').forEach(b => {
-    b.classList.remove('playing');
-    b.textContent = '▶ 朗読';
-    b._wasPlaying = false;
-  });
+function stopTTS() {
+  clearInterval(_chromeKeepAlive);
+  _chromeKeepAlive = null;
+  window.speechSynthesis.cancel();
+  if(_activeBtn) {
+    _activeBtn.classList.remove('playing');
+    _activeBtn.textContent = '▶ 朗読';
+    _activeBtn = null;
+  }
 }
 
 function playTTS(text, btn) {
-  // 如果正在播放，先停
-  if(window.speechSynthesis.speaking) {
-    window.speechSynthesis.cancel();
-    resetTtsBtns();
-    // 点同一个按钮 = 停止
-    if(btn._wasPlaying) return;
-  }
+  // 点的是正在播放的按钮 → 停止
+  if(_activeBtn === btn) { stopTTS(); return; }
+  // 有其他在播放 → 先停
+  if(_activeBtn) stopTTS();
 
   const utt = new SpeechSynthesisUtterance(text);
   utt.lang = 'ja-JP';
@@ -710,13 +712,18 @@ function playTTS(text, btn) {
   const voice = getJaVoice();
   if(voice) utt.voice = voice;
 
+  _activeBtn = btn;
   btn.classList.add('playing');
   btn.textContent = '■ 停止';
-  btn._wasPlaying = true;
 
-  utt.onend = utt.onerror = () => {
-    resetTtsBtns();
-  };
+  utt.onend = utt.onerror = () => stopTTS();
+
+  // Chrome bug：长文本约15秒后静默停止，用 pause/resume 保活
+  _chromeKeepAlive = setInterval(() => {
+    if(!window.speechSynthesis.speaking) { stopTTS(); return; }
+    window.speechSynthesis.pause();
+    window.speechSynthesis.resume();
+  }, 10000);
 
   window.speechSynthesis.speak(utt);
 }
