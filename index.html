@@ -767,10 +767,51 @@ const SECTION_COLORS = {
   '翻訳結果':'#5ebf7b','修正版':'#5ea8d4','日本人的说法':'#9a7ae0',
 };
 
-async function exportPDF(sections, title) {
-  const btn = event.currentTarget;
+function buildPrintHtml(sectionsHtml, title) {
+  return `<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif;
+  background:#faf9f7;color:#1a1a1a;padding:32px 28px 80px;font-size:14px;line-height:2.4}
+h1{font-size:18px;font-weight:700;margin-bottom:4px}
+.meta{font-size:12px;color:#888;margin-bottom:28px;padding-bottom:12px;border-bottom:1px solid #ddd}
+.section{margin-bottom:22px}
+.section-label{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  padding:3px 0 3px 10px;border-left:3px solid;margin-bottom:10px}
+.section-body{font-size:15px}
+ruby{ruby-align:center}
+rt{font-size:9px;color:#777;font-weight:normal}
+.loading{padding:40px;text-align:center;color:#888;font-size:14px}
+.print-btn{position:fixed;bottom:20px;right:20px;padding:12px 22px;background:#e87461;
+  color:#fff;border:none;border-radius:24px;font-size:14px;font-weight:600;cursor:pointer;
+  box-shadow:0 4px 12px rgba(0,0,0,.2)}
+@media print{.print-btn{display:none}}
+</style></head>
+<body>
+<h1>${title}</h1>
+<div class="meta">日語工具 · 汉字注音版</div>
+${sectionsHtml}
+<button class="print-btn" onclick="window.print()">打印 / 保存 PDF</button>
+</body></html>`;
+}
+
+async function exportPDF(sections, title, btn) {
   btn.disabled = true;
   btn.textContent = '⏳ 处理中...';
+
+  // 必须在 await 之前同步开窗，否则移动端拦截弹窗
+  const win = window.open('', '_blank');
+  if(!win) {
+    // 开窗被拦截时降级：在页内显示 overlay
+    exportPDFOverlay(sections, title, btn);
+    return;
+  }
+
+  win.document.write(buildPrintHtml('<div class="loading">注音处理中，请稍候…</div>', title));
+  win.document.close();
 
   try {
     const processed = await Promise.all(
@@ -779,7 +820,6 @@ async function exportPDF(sections, title) {
         html: await toFuriganaHtml(s.text),
       }))
     );
-
     const sectionsHtml = processed.map(s => {
       const color = SECTION_COLORS[s.label] || '#888';
       return `<div class="section">
@@ -787,36 +827,52 @@ async function exportPDF(sections, title) {
         <div class="section-body">${s.html}</div>
       </div>`;
     }).join('');
-
-    const win = window.open('', '_blank');
-    win.document.write(`<!DOCTYPE html>
-<html lang="ja"><head><meta charset="UTF-8">
-<title>${title}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif;
-  background:#faf9f7;color:#1a1a1a;padding:40px 48px 60px;font-size:14px;line-height:2.4}
-h1{font-size:20px;font-weight:700;margin-bottom:4px}
-.meta{font-size:12px;color:#888;margin-bottom:32px;padding-bottom:14px;border-bottom:1px solid #ddd}
-.section{margin-bottom:24px}
-.section-label{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
-  padding:3px 0 3px 10px;border-left:3px solid;margin-bottom:10px}
-.section-body p{margin-bottom:10px;font-size:15px}
-ruby{ruby-align:center}
-rt{font-size:9px;color:#777;font-weight:normal}
-.print-btn{position:fixed;bottom:24px;right:24px;padding:10px 20px;background:#e87461;
-  color:#fff;border:none;border-radius:20px;font-size:13px;cursor:pointer}
-@media print{.print-btn{display:none}}
-</style></head>
-<body>
-<h1>${title}</h1>
-<div class="meta">日語工具 · 汉字注音版</div>
-${sectionsHtml}
-<button class="print-btn" onclick="window.print()">打印 / 保存 PDF</button>
-</body></html>`);
+    win.document.open();
+    win.document.write(buildPrintHtml(sectionsHtml, title));
     win.document.close();
   } catch(e) {
-    alert('导出失败: ' + e.message);
+    win.document.body.innerHTML = '<p style="padding:20px;color:red">处理失败: ' + e.message + '</p>';
+  }
+  btn.disabled = false;
+  btn.textContent = '📄 导出 PDF';
+}
+
+// 降级方案：页内全屏 overlay（弹窗被拦截时使用）
+async function exportPDFOverlay(sections, title, btn) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:#faf9f7;z-index:999;overflow-y:auto;padding:28px 20px 80px;font-family:Hiragino Sans,sans-serif;font-size:14px;line-height:2.4;color:#1a1a1a';
+  overlay.innerHTML = '<p style="color:#888;text-align:center;padding:40px">注音处理中…</p>';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕ 关闭';
+  closeBtn.style.cssText = 'position:fixed;top:16px;right:16px;padding:8px 16px;background:#333;color:#fff;border:none;border-radius:20px;font-size:13px;cursor:pointer;z-index:1000';
+  closeBtn.onclick = () => { overlay.remove(); closeBtn.remove(); printBtn.remove(); };
+
+  const printBtn = document.createElement('button');
+  printBtn.textContent = '打印 / 保存 PDF';
+  printBtn.style.cssText = 'position:fixed;bottom:20px;right:20px;padding:12px 22px;background:#e87461;color:#fff;border:none;border-radius:24px;font-size:14px;font-weight:600;cursor:pointer;z-index:1000';
+  printBtn.onclick = () => window.print();
+
+  document.body.appendChild(overlay);
+  document.body.appendChild(closeBtn);
+  document.body.appendChild(printBtn);
+
+  try {
+    const processed = await Promise.all(
+      sections.map(async s => ({
+        label: s.label,
+        html: await toFuriganaHtml(s.text),
+      }))
+    );
+    overlay.innerHTML = '<h2 style="font-size:18px;font-weight:700;margin-bottom:20px">' + title + '</h2>' +
+      processed.map(s => {
+        const color = SECTION_COLORS[s.label] || '#888';
+        return `<div style="margin-bottom:22px">
+          <div style="font-size:10px;letter-spacing:2px;color:${color};border-left:3px solid ${color};padding-left:10px;margin-bottom:10px">${s.label}</div>
+          <div>${s.html}</div></div>`;
+      }).join('');
+  } catch(e) {
+    overlay.innerHTML = '<p style="color:red;padding:20px">处理失败: ' + e.message + '</p>';
   }
   btn.disabled = false;
   btn.textContent = '📄 导出 PDF';
@@ -826,7 +882,7 @@ function pdfBtn(sections, title) {
   const btn = document.createElement('button');
   btn.className = 'pdf-btn';
   btn.textContent = '📄 导出 PDF';
-  btn.onclick = (e) => exportPDF(sections, title);
+  btn.onclick = () => exportPDF(sections, title, btn);
   return btn;
 }
 
