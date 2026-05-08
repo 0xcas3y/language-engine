@@ -141,8 +141,10 @@ textarea::placeholder{color:var(--dim)}
     <h2>API Keys</h2>
     <p>Anthropic API Key，储存在本地浏览器，不会上传。</p>
     <input type="password" id="key-input" placeholder="sk-ant-...">
+    <div id="key-test-result" style="font-size:12px;margin-top:8px;min-height:16px"></div>
     <div class="modal-actions">
       <button class="btn-save" id="key-save">保存</button>
+      <button class="btn-cancel" id="key-test" style="padding:10px 16px;background:none;border:1px solid var(--border);color:var(--mid);border-radius:8px;font-size:13px;cursor:pointer">测试</button>
       <button class="btn-cancel" id="key-cancel">取消</button>
     </div>
   </div>
@@ -224,6 +226,21 @@ document.getElementById('key-save').onclick = () => {
 document.getElementById('key-cancel').onclick = () => {
   document.getElementById('settings-modal').classList.remove('open');
 };
+document.getElementById('key-test').onclick = async () => {
+  const k = document.getElementById('key-input').value.trim();
+  const res = document.getElementById('key-test-result');
+  if(!k) { res.style.color='var(--accent)'; res.textContent='请先输入 Key'; return; }
+  res.style.color='var(--mid)'; res.textContent='测试中…';
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{'x-api-key':k,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
+      body: JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:8,messages:[{role:'user',content:'hi'}]})
+    });
+    if(r.ok){ res.style.color='var(--green)'; res.textContent='✓ Key 有效'; }
+    else { const e=await r.json(); res.style.color='var(--accent)'; res.textContent='✗ ' + (r.status===401?'Key 无效或已过期':e.error?.message||r.statusText); }
+  } catch(e){ res.style.color='var(--accent)'; res.textContent='✗ 网络错误'; }
+};
 document.getElementById('settings-modal').onclick = (e) => {
   if(e.target === document.getElementById('settings-modal'))
     document.getElementById('settings-modal').classList.remove('open');
@@ -286,7 +303,11 @@ async function callClaude(systemText, userText, onChunk, maxTokens = 1500) {
 
   if(!resp.ok) {
     const err = await resp.json();
-    throw new Error(err.error?.message || resp.statusText);
+    const msg = err.error?.message || resp.statusText;
+    if(resp.status === 401) throw new Error('API Key 无效或已过期，请点右上角 ⚙ 重新填入');
+    if(resp.status === 429) throw new Error('请求过于频繁，请稍等片刻再试');
+    if(resp.status === 529 || resp.status === 500) throw new Error('Anthropic 服务暂时不可用，请稍后重试');
+    throw new Error(msg);
   }
 
   const reader = resp.body.getReader();
