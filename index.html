@@ -4,8 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>日語工具</title>
-<script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -757,30 +755,39 @@ function ttsBtn(text) {
   return btn;
 }
 
-// ── Kuroshiro (furigana) ──────────────────────────────
-let _kuroshiro = null;
-let _kuroshiroLoading = false;
-let _kuroshiroCallbacks = [];
-
-async function getKuroshiro() {
-  if(_kuroshiro) return _kuroshiro;
-  if(_kuroshiroLoading) {
-    return new Promise(res => _kuroshiroCallbacks.push(res));
-  }
-  _kuroshiroLoading = true;
-  const k = new Kuroshiro();
-  await k.init(new KuromojiAnalyzer({
-    dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict'
-  }));
-  _kuroshiro = k;
-  _kuroshiroCallbacks.forEach(cb => cb(k));
-  _kuroshiroCallbacks = [];
-  return k;
-}
-
+// ── Furigana via Claude API ───────────────────────────
 async function toFuriganaHtml(text) {
-  const k = await getKuroshiro();
-  return await k.convert(text, { mode: 'furigana', to: 'hiragana' });
+  const key = getKey();
+  if(!key) throw new Error('请先设置 API Key');
+
+  // 分段处理，每段不超过 400 字，避免 token 过长
+  const chunks = [];
+  for(let i = 0; i < text.length; i += 400) chunks.push(text.slice(i, i + 400));
+
+  const results = await Promise.all(chunks.map(async chunk => {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1200,
+        messages: [{
+          role: 'user',
+          content: `以下の日本語テキストの漢字すべてに<ruby>漢字<rt>よみ</rt></ruby>形式でひらがなルビを付けてHTMLで返してください。ひらがな・カタカナ・記号・英数字はそのまま。HTML以外の説明は不要です。\n\n${chunk}`
+        }]
+      })
+    });
+    if(!resp.ok) { const e = await resp.json(); throw new Error(e.error?.message || resp.statusText); }
+    const data = await resp.json();
+    return data.content[0].text.trim();
+  }));
+
+  return results.join('');
 }
 
 const SECTION_COLORS = {
